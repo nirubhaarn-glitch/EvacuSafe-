@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>EvacuSafe · Fire Detection & Door Control</title>
-    <!-- Firebase SDK (compat mode for simple script tags) -->
+    <!-- Firebase SDK (compat mode) -->
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
     <style>
@@ -35,7 +35,6 @@
             max-width: 680px;
             width: 100%;
             border: 1px solid rgba(255, 255, 255, 0.5);
-            transition: all 0.2s;
         }
 
         .header {
@@ -257,6 +256,7 @@
             gap: 10px;
             border: 1px solid #d9e6f0;
             margin-top: 0.5rem;
+            transition: all 0.2s;
         }
 
         .system-message.alert {
@@ -329,7 +329,7 @@
         </div>
     </div>
 
-    <!-- Connection status (hidden if fine) -->
+    <!-- Connection status warning -->
     <div id="connectionWarning" class="connection-warning">
         ⚠️ Waiting for Firebase data — check database rules or network.
     </div>
@@ -374,7 +374,7 @@
         </div>
     </div>
 
-    <!-- Door detail (redundant but clear) -->
+    <!-- Door detail section -->
     <div class="door-section">
         <div class="door-info">
             <div class="door-icon" id="doorEmoji">🔒</div>
@@ -403,28 +403,25 @@
 
 <script>
     (function() {
-        // --------------------------------------------------------------
-        // 1. FIREBASE CONFIGURATION (matches the ESP32 code)
-        // --------------------------------------------------------------
+        // ==============================================================
+        // 1. FIREBASE CONFIGURATION (matches ESP32 code)
+        // ==============================================================
         const firebaseConfig = {
             apiKey: "AIzaSyAk_UROjgz-3aQ6WK_CQZs2vdxvMUlNkqw",
             databaseURL: "https://evacusafe-181a8-default-rtdb.asia-southeast1.firebasedatabase.app",
             projectId: "evacusafe-181a8",
-            // authDomain not needed for RTDB with anonymous, but we keep minimal
         };
 
         // Initialize Firebase (compat)
         firebase.initializeApp(firebaseConfig);
 
-        // Get a reference to the database service
+        // Get database reference
         const database = firebase.database();
-
-        // Reference to our root path
         const evacuSafeRef = database.ref('/EvacuSafe');
 
-        // --------------------------------------------------------------
+        // ==============================================================
         // 2. DOM ELEMENTS
-        // --------------------------------------------------------------
+        // ==============================================================
         const fireStatusPill = document.getElementById('fireStatusPill');
         const fireStatusText = document.getElementById('fireStatusText');
         const doorStatusPill = document.getElementById('doorStatusPill');
@@ -438,27 +435,27 @@
         const systemMessage = document.getElementById('systemMessage');
         const connectionWarning = document.getElementById('connectionWarning');
 
-        // --------------------------------------------------------------
-        // 3. HELPER: update UI from snapshot data
-        // --------------------------------------------------------------
+        // ==============================================================
+        // 3. UI UPDATE FUNCTION
+        // ==============================================================
         function updateUI(data) {
-            // If data is null/undefined, show placeholders and warning
             if (!data || typeof data !== 'object') {
                 connectionWarning.classList.add('show');
+                connectionWarning.textContent = '⚠️ No data available from Firebase. Check database rules.';
                 return;
             }
 
             connectionWarning.classList.remove('show');
 
-            // --- Extract values with fallbacks ---
+            // Extract values with fallbacks
             const gas = (data.gas !== undefined && data.gas !== null) ? Number(data.gas) : null;
             const temperature = (data.temperature !== undefined && data.temperature !== null) ? Number(data.temperature) : null;
             const humidity = (data.humidity !== undefined && data.humidity !== null) ? Number(data.humidity) : null;
-            const fireDetected = (data.fireDetected === true); // boolean
+            const fireDetected = (data.fireDetected === true);
             const doorStatus = data.doorStatus || (fireDetected ? 'UNLOCKED' : 'LOCKED');
             const systemStatus = data.systemStatus || (fireDetected ? 'FIRE ALERT' : 'NORMAL');
 
-            // --- Update sensor cards ---
+            // --- Sensor values ---
             tempValue.textContent = (temperature !== null && !isNaN(temperature)) ? temperature.toFixed(1) : '--';
             humValue.textContent = (humidity !== null && !isNaN(humidity)) ? Math.round(humidity) : '--';
             gasValue.textContent = (gas !== null && !isNaN(gas)) ? gas : '--';
@@ -499,7 +496,7 @@
                 doorHint.textContent = '🔐 Locked · Safe';
             }
 
-            // --- System status message ---
+            // --- System message ---
             if (systemStatus === 'FIRE ALERT' || fireDetected) {
                 systemMessage.textContent = '🔥 FIRE ALERT · Buzzer active · Door unlocked';
                 systemMessage.classList.add('alert');
@@ -507,13 +504,11 @@
                 systemMessage.textContent = '✅ System normal · All sensors within range';
                 systemMessage.classList.remove('alert');
             }
-
-            // Optional: display systemStatus text if needed, but our UI covers it.
         }
 
-        // --------------------------------------------------------------
-        // 4. ATTACH REALTIME LISTENER
-        // --------------------------------------------------------------
+        // ==============================================================
+        // 4. REALTIME LISTENER
+        // ==============================================================
         evacuSafeRef.on('value', (snapshot) => {
             const data = snapshot.val();
             console.log('Realtime data:', data);
@@ -521,53 +516,38 @@
         }, (error) => {
             console.error('Firebase read error:', error);
             connectionWarning.classList.add('show');
-            // Show error text (optional)
             connectionWarning.textContent = '⚠️ Firebase error: ' + error.message + ' — check database rules.';
         });
 
-        // Also set a timeout to show warning if no data arrives in 4 seconds
-        let dataReceived = false;
+        // ==============================================================
+        // 5. FALLBACK WARNING AFTER TIMEOUT
+        // ==============================================================
+        let receivedData = false;
         evacuSafeRef.once('value')
             .then((snapshot) => {
-                if (snapshot.exists()) dataReceived = true;
+                if (snapshot.exists()) receivedData = true;
             })
             .catch(() => {});
 
         setTimeout(() => {
-            if (!dataReceived) {
-                // If after 4s we haven't received data, show warning (unless listener already showed)
-                if (!evacuSafeRef) return;
-                // check if data already exists by reading again? simpler: if connectionWarning not already shown, show it
-                if (!connectionWarning.classList.contains('show')) {
-                    connectionWarning.classList.add('show');
-                    connectionWarning.textContent = '⚠️ No data from Firebase yet. Verify database rules and network.';
-                }
+            if (!receivedData && !connectionWarning.classList.contains('show')) {
+                connectionWarning.classList.add('show');
+                connectionWarning.textContent = '⚠️ No data from Firebase yet. Verify database rules and network.';
             }
-        }, 4000);
+        }, 5000);
 
-        // --------------------------------------------------------------
-        // 5. OPTIONAL: ADD A SMALL TEST FALLBACK (only for demonstration if no data)
-        //    But we do NOT write any dummy data — just show placeholders.
-        //    However, we can provide a gentle hint.
-        // --------------------------------------------------------------
-        // Set default placeholders in case nothing arrives (already done in HTML as '--')
-        // Also set initial warning after 2 seconds if no data, but listener handles it.
-
-        // For better UX, if data arrives, remove warning.
-        // Already handled inside updateUI.
-
-        // Additionally, if there is an auth error, we show it.
-        // Anonymous auth is not required for read-only public rules, but if rules require auth,
-        // the ESP32 uses anonymous sign-up. The web client can also sign in anonymously
-        // to match, but since our rules might allow public read for demo, we skip.
-        // To be safe and match ESP32 anonymous auth, we could sign in anonymously.
-        // But that might require enabling anonymous auth. We'll try but catch errors.
-        // However for the web page, it's optional. To ensure read access if rules require auth,
-        // we attempt anonymous sign-in in the background.
+        // ==============================================================
+        // 6. OPTIONAL ANONYMOUS AUTH (matches ESP32 signUp)
+        // ==============================================================
         firebase.auth().signInAnonymously().catch((error) => {
             console.warn('Anonymous auth failed (optional):', error.message);
-            // Not critical; if rules allow public read, no problem.
+            // Not critical if database rules allow public read
         });
+
+        // ==============================================================
+        // 7. LOG INIT
+        // ==============================================================
+        console.log('EvacuSafe dashboard initialized. Listening on /EvacuSafe');
     })();
 </script>
 </body>
