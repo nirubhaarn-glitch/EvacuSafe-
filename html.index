@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EvacuSafe · Fire Detection & Door Control</title>
+    <!-- Firebase SDK (compat mode for simple script tags) -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+        }
+
+        body {
+            background: linear-gradient(145deg, #f6f9fc 0%, #e9f0f5 100%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.9);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-radius: 2.5rem;
+            box-shadow: 0 25px 40px -12px rgba(0, 20, 30, 0.35), inset 0 1px 2px rgba(255, 255, 255, 0.7);
+            padding: 2rem 2rem 2.5rem;
+            max-width: 680px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.5);
+            transition: all 0.2s;
+        }
+
+        .header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.75rem;
+            flex-wrap: wrap;
+            gap: 0.8rem;
+        }
+
+        .title-group h1 {
+            font-size: 1.9rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, #0b2b3f, #1d4f6e);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .title-group h1 span {
+            font-size: 1.9rem;
+        }
+
+        .subhead {
+            font-size: 0.9rem;
+            color: #4e6b7e;
+            margin-top: 0.2rem;
+            font-weight: 500;
+            letter-spacing: 0.02em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .badge {
+            background: #d4e3ed;
+            color: #1a4056;
+            padding: 0.25rem 1rem;
+            border-radius: 50px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid rgba(255, 255, 255, 0.7);
+        }
+
+        .live-dot {
+            width: 9px;
+            height: 9px;
+            background: #12b76a;
+            border-radius: 50%;
+            display: inline-block;
+            box-shadow: 0 0 0 0 rgba(18, 183, 106, 0.5);
+            animation: pulse 1.6s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(18, 183, 106, 0.6); }
+            70% { box-shadow: 0 0 0 8px rgba(18, 183, 106, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(18, 183, 106, 0); }
+        }
+
+        .status-panel {
+            margin: 1.5rem 0 1.8rem;
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .status-pill {
+            background: white;
+            border-radius: 3rem;
+            padding: 0.7rem 1.5rem;
+            flex: 1 1 180px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 6px 14px rgba(0, 20, 30, 0.06), inset 0 0 0 1px rgba(255, 255, 255, 0.9);
+            border: 1px solid rgba(0, 0, 0, 0.02);
+            transition: all 0.15s;
+        }
+
+        .status-pill .label {
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: #426579;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .status-pill .value {
+            font-size: 1.3rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #0d2e41;
+        }
+
+        .status-pill .value .indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #b0c8d6;
+        }
+
+        .status-pill.fire-active .value .indicator { background: #e5484d; box-shadow: 0 0 12px #e5484d80; }
+        .status-pill.fire-active .value { color: #c72a2f; }
+
+        .status-pill.safe .value .indicator { background: #12b76a; box-shadow: 0 0 12px #12b76a80; }
+
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+            margin-bottom: 2rem;
+        }
+
+        .sensor-card {
+            background: #ffffffd9;
+            backdrop-filter: blur(4px);
+            border-radius: 2rem;
+            padding: 1.2rem 0.8rem;
+            text-align: center;
+            box-shadow: 0 10px 20px -8px rgba(0, 30, 40, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            transition: transform 0.1s;
+        }
+
+        .sensor-card .icon {
+            font-size: 1.8rem;
+            margin-bottom: 0.3rem;
+            filter: drop-shadow(0 4px 4px rgba(0,0,0,0.05));
+        }
+
+        .sensor-card .sensor-label {
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #4f6f82;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .sensor-card .sensor-value {
+            font-size: 1.6rem;
+            font-weight: 700;
+            color: #112f40;
+            margin: 0.3rem 0 0.1rem;
+            line-height: 1.2;
+        }
+
+        .sensor-card .unit {
+            font-size: 0.8rem;
+            color: #7a99ab;
+            font-weight: 500;
+        }
+
+        .door-section {
+            background: #ffffffb3;
+            border-radius: 2rem;
+            padding: 1.3rem 1.8rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 8px 18px -8px rgba(0, 30, 40, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.8);
+            margin-bottom: 1.8rem;
+        }
+
+        .door-info {
+            display: flex;
+            align-items: center;
+            gap: 1.2rem;
+        }
+
+        .door-icon {
+            font-size: 2.5rem;
+            line-height: 1;
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+        }
+
+        .door-text h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            color: #375e74;
+            margin-bottom: 0.25rem;
+            letter-spacing: 0.02em;
+        }
+
+        .door-status {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -0.01em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .door-status.locked { color: #4d7b97; }
+        .door-status.unlocked { color: #c72a2f; }
+
+        .system-message {
+            background: #ecf3f9;
+            border-radius: 3rem;
+            padding: 0.8rem 1.5rem;
+            font-size: 0.95rem;
+            font-weight: 600;
+            color: #1a4b63;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            border: 1px solid #d9e6f0;
+            margin-top: 0.5rem;
+        }
+
+        .system-message.alert {
+            background: #fee9e9;
+            color: #b11b1f;
+            border-color: #fbc4c4;
+        }
+
+        .footer-note {
+            text-align: center;
+            margin-top: 1.8rem;
+            font-size: 0.78rem;
+            color: #6f8b9c;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .footer-note code {
+            background: #d9e6f0;
+            padding: 0.2rem 0.8rem;
+            border-radius: 40px;
+            color: #174154;
+            font-size: 0.75rem;
+            font-weight: 500;
+        }
+
+        .connection-warning {
+            background: #fff5e0;
+            border-radius: 1.5rem;
+            padding: 0.7rem 1.2rem;
+            font-size: 0.8rem;
+            color: #8a6100;
+            text-align: center;
+            margin-bottom: 1rem;
+            display: none;
+            border: 1px solid #ffe2a4;
+        }
+
+        .connection-warning.show {
+            display: block;
+        }
+
+        @media (max-width: 500px) {
+            .card { padding: 1.5rem; }
+            .sensor-grid { grid-template-columns: 1fr; }
+            .status-panel { flex-direction: column; }
+            .door-section { flex-direction: column; gap: 1rem; align-items: flex-start; }
+            .door-info { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <!-- Header -->
+    <div class="header">
+        <div class="title-group">
+            <h1>
+                <span>🔥</span> EvacuSafe
+            </h1>
+            <div class="subhead">
+                <span class="live-dot"></span> Live · Firebase Realtime
+            </div>
+        </div>
+        <div class="badge">
+            <span>📡</span> ESP32 · MQ-2 · DHT11
+        </div>
+    </div>
+
+    <!-- Connection status (hidden if fine) -->
+    <div id="connectionWarning" class="connection-warning">
+        ⚠️ Waiting for Firebase data — check database rules or network.
+    </div>
+
+    <!-- Status overview (Fire / Door) -->
+    <div class="status-panel">
+        <div id="fireStatusPill" class="status-pill safe">
+            <span class="label">Fire status</span>
+            <span class="value">
+                <span class="indicator"></span>
+                <span id="fireStatusText">NORMAL</span>
+            </span>
+        </div>
+        <div id="doorStatusPill" class="status-pill safe">
+            <span class="label">Door lock</span>
+            <span class="value">
+                <span class="indicator"></span>
+                <span id="doorStatusText">LOCKED</span>
+            </span>
+        </div>
+    </div>
+
+    <!-- Sensor cards -->
+    <div class="sensor-grid">
+        <div class="sensor-card">
+            <div class="icon">🌡️</div>
+            <div class="sensor-label">Temperature</div>
+            <div class="sensor-value" id="tempValue">--</div>
+            <div class="unit">°C</div>
+        </div>
+        <div class="sensor-card">
+            <div class="icon">💧</div>
+            <div class="sensor-label">Humidity</div>
+            <div class="sensor-value" id="humValue">--</div>
+            <div class="unit">%</div>
+        </div>
+        <div class="sensor-card">
+            <div class="icon">🧪</div>
+            <div class="sensor-label">Gas (MQ-2)</div>
+            <div class="sensor-value" id="gasValue">--</div>
+            <div class="unit">ADC</div>
+        </div>
+    </div>
+
+    <!-- Door detail (redundant but clear) -->
+    <div class="door-section">
+        <div class="door-info">
+            <div class="door-icon" id="doorEmoji">🔒</div>
+            <div class="door-text">
+                <h3>Emergency door</h3>
+                <div id="doorStatusDetail" class="door-status locked">LOCKED</div>
+            </div>
+        </div>
+        <div style="font-size: 0.85rem; color: #3c657b; background: #e3eef6; padding: 0.5rem 1rem; border-radius: 2rem;">
+            <span id="doorHint">🔐 Locked · Safe</span>
+        </div>
+    </div>
+
+    <!-- System status message -->
+    <div id="systemMessage" class="system-message">
+        ✅ System normal · All sensors within range
+    </div>
+
+    <!-- Footer note -->
+    <div class="footer-note">
+        <span>⚡ Real-time from ESP32</span>
+        <code>EVACUSAFE / Firebase RTDB</code>
+        <span>🔔 Buzzer & relay active-high</span>
+    </div>
+</div>
+
+<script>
+    (function() {
+        // --------------------------------------------------------------
+        // 1. FIREBASE CONFIGURATION (matches the ESP32 code)
+        // --------------------------------------------------------------
+        const firebaseConfig = {
+            apiKey: "AIzaSyAk_UROjgz-3aQ6WK_CQZs2vdxvMUlNkqw",
+            databaseURL: "https://evacusafe-181a8-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "evacusafe-181a8",
+            // authDomain not needed for RTDB with anonymous, but we keep minimal
+        };
+
+        // Initialize Firebase (compat)
+        firebase.initializeApp(firebaseConfig);
+
+        // Get a reference to the database service
+        const database = firebase.database();
+
+        // Reference to our root path
+        const evacuSafeRef = database.ref('/EvacuSafe');
+
+        // --------------------------------------------------------------
+        // 2. DOM ELEMENTS
+        // --------------------------------------------------------------
+        const fireStatusPill = document.getElementById('fireStatusPill');
+        const fireStatusText = document.getElementById('fireStatusText');
+        const doorStatusPill = document.getElementById('doorStatusPill');
+        const doorStatusText = document.getElementById('doorStatusText');
+        const tempValue = document.getElementById('tempValue');
+        const humValue = document.getElementById('humValue');
+        const gasValue = document.getElementById('gasValue');
+        const doorEmoji = document.getElementById('doorEmoji');
+        const doorStatusDetail = document.getElementById('doorStatusDetail');
+        const doorHint = document.getElementById('doorHint');
+        const systemMessage = document.getElementById('systemMessage');
+        const connectionWarning = document.getElementById('connectionWarning');
+
+        // --------------------------------------------------------------
+        // 3. HELPER: update UI from snapshot data
+        // --------------------------------------------------------------
+        function updateUI(data) {
+            // If data is null/undefined, show placeholders and warning
+            if (!data || typeof data !== 'object') {
+                connectionWarning.classList.add('show');
+                return;
+            }
+
+            connectionWarning.classList.remove('show');
+
+            // --- Extract values with fallbacks ---
+            const gas = (data.gas !== undefined && data.gas !== null) ? Number(data.gas) : null;
+            const temperature = (data.temperature !== undefined && data.temperature !== null) ? Number(data.temperature) : null;
+            const humidity = (data.humidity !== undefined && data.humidity !== null) ? Number(data.humidity) : null;
+            const fireDetected = (data.fireDetected === true); // boolean
+            const doorStatus = data.doorStatus || (fireDetected ? 'UNLOCKED' : 'LOCKED');
+            const systemStatus = data.systemStatus || (fireDetected ? 'FIRE ALERT' : 'NORMAL');
+
+            // --- Update sensor cards ---
+            tempValue.textContent = (temperature !== null && !isNaN(temperature)) ? temperature.toFixed(1) : '--';
+            humValue.textContent = (humidity !== null && !isNaN(humidity)) ? Math.round(humidity) : '--';
+            gasValue.textContent = (gas !== null && !isNaN(gas)) ? gas : '--';
+
+            // --- Fire status pill ---
+            if (fireDetected) {
+                fireStatusPill.classList.add('fire-active');
+                fireStatusPill.classList.remove('safe');
+                fireStatusText.textContent = 'FIRE!';
+            } else {
+                fireStatusPill.classList.remove('fire-active');
+                fireStatusPill.classList.add('safe');
+                fireStatusText.textContent = 'NORMAL';
+            }
+
+            // --- Door status pill ---
+            const isUnlocked = (doorStatus === 'UNLOCKED' || doorStatus === 'unlocked');
+            if (isUnlocked) {
+                doorStatusPill.classList.add('fire-active');
+                doorStatusPill.classList.remove('safe');
+                doorStatusText.textContent = 'UNLOCKED';
+            } else {
+                doorStatusPill.classList.remove('fire-active');
+                doorStatusPill.classList.add('safe');
+                doorStatusText.textContent = 'LOCKED';
+            }
+
+            // --- Door detail section ---
+            if (isUnlocked) {
+                doorEmoji.textContent = '🔓';
+                doorStatusDetail.textContent = 'UNLOCKED';
+                doorStatusDetail.className = 'door-status unlocked';
+                doorHint.textContent = '🚪 Door unlocked · Evacuate';
+            } else {
+                doorEmoji.textContent = '🔒';
+                doorStatusDetail.textContent = 'LOCKED';
+                doorStatusDetail.className = 'door-status locked';
+                doorHint.textContent = '🔐 Locked · Safe';
+            }
+
+            // --- System status message ---
+            if (systemStatus === 'FIRE ALERT' || fireDetected) {
+                systemMessage.textContent = '🔥 FIRE ALERT · Buzzer active · Door unlocked';
+                systemMessage.classList.add('alert');
+            } else {
+                systemMessage.textContent = '✅ System normal · All sensors within range';
+                systemMessage.classList.remove('alert');
+            }
+
+            // Optional: display systemStatus text if needed, but our UI covers it.
+        }
+
+        // --------------------------------------------------------------
+        // 4. ATTACH REALTIME LISTENER
+        // --------------------------------------------------------------
+        evacuSafeRef.on('value', (snapshot) => {
+            const data = snapshot.val();
+            console.log('Realtime data:', data);
+            updateUI(data);
+        }, (error) => {
+            console.error('Firebase read error:', error);
+            connectionWarning.classList.add('show');
+            // Show error text (optional)
+            connectionWarning.textContent = '⚠️ Firebase error: ' + error.message + ' — check database rules.';
+        });
+
+        // Also set a timeout to show warning if no data arrives in 4 seconds
+        let dataReceived = false;
+        evacuSafeRef.once('value')
+            .then((snapshot) => {
+                if (snapshot.exists()) dataReceived = true;
+            })
+            .catch(() => {});
+
+        setTimeout(() => {
+            if (!dataReceived) {
+                // If after 4s we haven't received data, show warning (unless listener already showed)
+                if (!evacuSafeRef) return;
+                // check if data already exists by reading again? simpler: if connectionWarning not already shown, show it
+                if (!connectionWarning.classList.contains('show')) {
+                    connectionWarning.classList.add('show');
+                    connectionWarning.textContent = '⚠️ No data from Firebase yet. Verify database rules and network.';
+                }
+            }
+        }, 4000);
+
+        // --------------------------------------------------------------
+        // 5. OPTIONAL: ADD A SMALL TEST FALLBACK (only for demonstration if no data)
+        //    But we do NOT write any dummy data — just show placeholders.
+        //    However, we can provide a gentle hint.
+        // --------------------------------------------------------------
+        // Set default placeholders in case nothing arrives (already done in HTML as '--')
+        // Also set initial warning after 2 seconds if no data, but listener handles it.
+
+        // For better UX, if data arrives, remove warning.
+        // Already handled inside updateUI.
+
+        // Additionally, if there is an auth error, we show it.
+        // Anonymous auth is not required for read-only public rules, but if rules require auth,
+        // the ESP32 uses anonymous sign-up. The web client can also sign in anonymously
+        // to match, but since our rules might allow public read for demo, we skip.
+        // To be safe and match ESP32 anonymous auth, we could sign in anonymously.
+        // But that might require enabling anonymous auth. We'll try but catch errors.
+        // However for the web page, it's optional. To ensure read access if rules require auth,
+        // we attempt anonymous sign-in in the background.
+        firebase.auth().signInAnonymously().catch((error) => {
+            console.warn('Anonymous auth failed (optional):', error.message);
+            // Not critical; if rules allow public read, no problem.
+        });
+    })();
+</script>
+</body>
+</html>
